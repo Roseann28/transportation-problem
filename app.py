@@ -187,30 +187,49 @@ st.caption(
 )
 
 # ----------------------------------------------------------------------------
-# Fuel & vehicle assumptions (all USD, no currency conversion)
+# Fuel & vehicle assumptions (fixed reference values — do not affect the solver)
 # ----------------------------------------------------------------------------
 
-st.subheader("1. Fuel and vehicle assumptions (USD)")
-c1, c2, c3, c4 = st.columns(4)
-with c1:
-    capacity_bags = st.number_input("Truck capacity (bags)", value=67.0, min_value=1.0, step=1.0)
-    fuel_consumption = st.number_input("Fuel consumption (km/l)", value=8.0, min_value=0.1, step=0.5)
-with c2:
-    diesel_price = st.number_input("Diesel price ($/l)", value=1.72, min_value=0.0, step=0.01)
-    misc_km = st.number_input("Misc / detour distance (km)", value=8.0, min_value=0.0, step=1.0)
-with c3:
-    maintenance_trip = st.number_input("Maintenance / round trip ($)", value=9.70, min_value=0.0, step=0.5)
-    cess_trip = st.number_input("Cess / weighbridge ($/trip)", value=38.50, min_value=0.0, step=0.5)
-with c4:
-    staff_trip = st.number_input("Staff allowances ($/trip)", value=38.50, min_value=0.0, step=0.5)
+# Fixed constants — for display/reference only
+capacity_bags     = 67.0
+fuel_consumption  = 8.0    # km/l
+diesel_price      = 1.72   # $/l
+misc_km           = 8.0    # km
+maintenance_trip  = 9.70   # $
+cess_trip         = 38.50  # $
+staff_trip        = 38.50  # $
 
-fuel_per_km = (1 / fuel_consumption if fuel_consumption else 0) * diesel_price
+fuel_per_km    = (1 / fuel_consumption) * diesel_price
 fixed_per_trip = maintenance_trip + cess_trip + staff_trip
-st.caption(
-    f"Fuel cost: ${fuel_per_km:.3f}/km "
-    f"({1/fuel_consumption:.3f} l/km x ${diesel_price:.2f}/l). "
-    f"Fixed cost per round trip: ${fixed_per_trip:.2f} (maintenance + cess + staff)."
-)
+
+st.subheader("1. Fuel and vehicle assumptions (USD) — reference only")
+st.caption("These values are fixed parameters used to derive cost per bag from distance. They are not editable here.")
+
+ref_df = pd.DataFrame({
+    "Parameter": [
+        "Truck capacity (bags)",
+        "Fuel consumption (km/l)",
+        "Diesel price ($/l)",
+        "Misc / detour distance (km)",
+        "Maintenance / round trip ($)",
+        "Cess / weighbridge ($/trip)",
+        "Staff allowances ($/trip)",
+        "Derived: Fuel cost ($/km)",
+        "Derived: Fixed cost per trip ($)",
+    ],
+    "Value": [
+        capacity_bags,
+        fuel_consumption,
+        diesel_price,
+        misc_km,
+        maintenance_trip,
+        cess_trip,
+        staff_trip,
+        round(fuel_per_km, 3),
+        round(fixed_per_trip, 2),
+    ],
+})
+st.dataframe(ref_df, use_container_width=False, hide_index=True)
 
 # ----------------------------------------------------------------------------
 # Supply, demand, distances
