@@ -170,8 +170,8 @@ def init_state():
         st.session_state.supply = [51, 121, 30]
     if "demand" not in st.session_state:
         st.session_state.demand = [50, 59, 45, 48]
-    if "distances" not in st.session_state:
-        st.session_state.distances = np.array([
+    if "costs" not in st.session_state:
+        st.session_state.costs = np.array([
             [39, 24, 147, 13],
             [34, 35, 159, 11],
             [106, 46, 68, 80],
@@ -182,112 +182,70 @@ init_state()
 
 st.title("Maize distribution transportation model")
 st.caption(
-    "Set fuel and vehicle assumptions in USD, enter route distances, supply and demand, "
-    "then solve for the least-cost distribution plan with Vogel's Approximation Method + MODI."
+    "Enter the cost per bag for each market-to-school route, along with supply and demand, "
+    "then solve for the least-cost distribution plan using Vogel's Approximation Method + MODI."
 )
 
 # ----------------------------------------------------------------------------
-# Fuel & vehicle assumptions (fixed reference values — do not affect the solver)
+# Supply, demand, cost per bag
 # ----------------------------------------------------------------------------
 
-# Fixed constants — for display/reference only
-capacity_bags     = 67.0
-fuel_consumption  = 8.0    # km/l
-diesel_price      = 1.72   # $/l
-misc_km           = 8.0    # km
-maintenance_trip  = 9.70   # $
-cess_trip         = 38.50  # $
-staff_trip        = 38.50  # $
-
-fuel_per_km    = (1 / fuel_consumption) * diesel_price
-fixed_per_trip = maintenance_trip + cess_trip + staff_trip
-
-st.subheader("1. Fuel and vehicle assumptions (USD) — reference only")
-st.caption("These values are fixed parameters used to derive cost per bag from distance. They are not editable here.")
-
-ref_df = pd.DataFrame({
-    "Parameter": [
-        "Truck capacity (bags)",
-        "Fuel consumption (km/l)",
-        "Diesel price ($/l)",
-        "Misc / detour distance (km)",
-        "Maintenance / round trip ($)",
-        "Cess / weighbridge ($/trip)",
-        "Staff allowances ($/trip)",
-        "Derived: Fuel cost ($/km)",
-        "Derived: Fixed cost per trip ($)",
-    ],
-    "Value": [
-        capacity_bags,
-        fuel_consumption,
-        diesel_price,
-        misc_km,
-        maintenance_trip,
-        cess_trip,
-        staff_trip,
-        round(fuel_per_km, 3),
-        round(fixed_per_trip, 2),
-    ],
-})
-st.dataframe(ref_df, use_container_width=False, hide_index=True)
-
-# ----------------------------------------------------------------------------
-# Supply, demand, distances
-# ----------------------------------------------------------------------------
-
-st.subheader("2. Markets, schools, supply, demand and distance (km)")
+st.subheader("1. Markets, schools, supply, demand and cost per bag (KES)")
 
 bcol1, bcol2, _ = st.columns([1, 1, 6])
 with bcol1:
     if st.button("+ Market"):
         st.session_state.sources.append(f"Market {len(st.session_state.sources) + 1}")
         st.session_state.supply.append(0)
-        st.session_state.distances = np.vstack(
-            [st.session_state.distances, np.zeros((1, len(st.session_state.dests)))]
+        st.session_state.costs = np.vstack(
+            [st.session_state.costs, np.zeros((1, len(st.session_state.dests)))]
         )
         st.rerun()
 with bcol2:
     if st.button("+ School"):
         st.session_state.dests.append(f"School {len(st.session_state.dests) + 1}")
         st.session_state.demand.append(0)
-        st.session_state.distances = np.hstack(
-            [st.session_state.distances, np.zeros((len(st.session_state.sources), 1))]
+        st.session_state.costs = np.hstack(
+            [st.session_state.costs, np.zeros((len(st.session_state.sources), 1))]
         )
         st.rerun()
 
 n_src = len(st.session_state.sources)
 n_dst = len(st.session_state.dests)
 
-table = pd.DataFrame(
-    st.session_state.distances,
+# Cost + supply table
+cost_table = pd.DataFrame(
+    st.session_state.costs,
     index=st.session_state.sources,
     columns=st.session_state.dests,
 )
-table.insert(0, "Supply", st.session_state.supply)
+cost_table.insert(0, "Supply (bags)", st.session_state.supply)
 
+st.caption("Enter cost per bag (KES) for each route, and weekly supply per market.")
 edited = st.data_editor(
-    table,
+    cost_table,
     num_rows="fixed",
     use_container_width=True,
-    key="distance_editor",
+    key="cost_editor",
 )
 
+# Demand row
 demand_row = pd.DataFrame(
-    [[None] + st.session_state.demand],
-    columns=["Supply"] + st.session_state.dests,
-    index=["Demand"],
+    [st.session_state.demand],
+    columns=st.session_state.dests,
+    index=["Demand (bags)"],
 )
-st.caption("Weekly demand per school (bags)")
+st.caption("Weekly demand per school (bags).")
 edited_demand = st.data_editor(
-    demand_row.drop(columns=["Supply"]),
+    demand_row,
     num_rows="fixed",
     use_container_width=True,
     key="demand_editor",
 )
 
 # Pull edited values back out
-st.session_state.supply = edited["Supply"].tolist()
-st.session_state.distances = edited.drop(columns=["Supply"]).to_numpy(dtype=float)
+st.session_state.supply = edited["Supply (bags)"].tolist()
+st.session_state.costs = edited.drop(columns=["Supply (bags)"]).to_numpy(dtype=float)
 st.session_state.demand = edited_demand.iloc[0].tolist()
 
 total_supply = sum(st.session_state.supply)
@@ -298,22 +256,10 @@ st.caption(f"Total supply: {total_supply:.0f} bags  |  Total demand: {total_dema
 # Solve
 # ----------------------------------------------------------------------------
 
-st.subheader("3. Solve")
+st.subheader("2. Solve")
 
 if st.button("Solve", type="primary"):
-    distances = st.session_state.distances
-    cost = np.zeros((n_src, n_dst))
-    for i in range(n_src):
-        for j in range(n_dst):
-            round_trip_km = 2 * distances[i, j] + misc_km
-            running_cost = round_trip_km * fuel_per_km + fixed_per_trip
-            cost[i, j] = running_cost / capacity_bags if capacity_bags else 0
-
-    st.markdown("**Derived cost per bag (USD)**")
-    cost_df = pd.DataFrame(
-        np.round(cost, 2), index=st.session_state.sources, columns=st.session_state.dests
-    )
-    st.dataframe(cost_df, use_container_width=True)
+    cost = st.session_state.costs
 
     alloc, total_cost, note = solve_transportation(
         st.session_state.supply, st.session_state.demand, cost
@@ -334,12 +280,12 @@ if st.button("Solve", type="primary"):
 
     st.markdown("**Optimal allocation (bags)**")
     alloc_df = pd.DataFrame(np.round(alloc, 2), index=names_i, columns=names_j)
-    alloc_df["Allocated"] = alloc_df.sum(axis=1)
+    alloc_df["Total allocated"] = alloc_df.sum(axis=1)
     alloc_df.loc["Demand met"] = alloc_df.sum(axis=0)
     st.dataframe(alloc_df, use_container_width=True)
 
     m1, m2 = st.columns(2)
-    m1.metric("Total cost", f"${total_cost:,.2f}")
+    m1.metric("Total cost (KES)", f"{total_cost:,.2f}")
 
     routes = []
     for i, s in enumerate(names_i):
@@ -348,9 +294,11 @@ if st.button("Solve", type="primary"):
             if qty > 1e-6:
                 unit_cost = cost[i, j] if i < cost.shape[0] and j < cost.shape[1] else 0
                 routes.append({
-                    "From": s, "To": d, "Bags": round(qty, 2),
-                    "Cost/bag ($)": round(unit_cost, 2),
-                    "Route cost ($)": round(qty * unit_cost, 2),
+                    "From": s,
+                    "To": d,
+                    "Bags": round(qty, 2),
+                    "Cost/bag (KES)": round(unit_cost, 2),
+                    "Route cost (KES)": round(qty * unit_cost, 2),
                 })
     m2.metric("Routes used", len(routes))
 
@@ -359,8 +307,4 @@ if st.button("Solve", type="primary"):
         st.dataframe(pd.DataFrame(routes), use_container_width=True)
 
 st.divider()
-st.caption(
-    "Cost per bag is derived, not entered directly: "
-    "(2 x one-way distance + misc detour) x fuel cost/km, plus maintenance, cess, and staff "
-    "allowances per round trip, divided by truck capacity in bags. All figures are in USD."
-)
+st.caption("Solved using Vogel's Approximation Method (VAM) for the initial basic feasible solution, optimised with the Modified Distribution (MODI) method.")
