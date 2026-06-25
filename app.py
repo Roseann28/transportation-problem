@@ -470,6 +470,3 @@ if st.button("▶  Optimise Routes", type="primary"):
         st.dataframe(pd.DataFrame(routes), use_container_width=True)
 
 st.divider()
-st.caption(
-    "Route Optimiser · VAM initial solution refined by the Modified Distribution (MODI) method · All costs in KES"
-)
