@@ -354,10 +354,6 @@ st.markdown("""
 
   <div class="hero-eyebrow">🚛 Logistics Company</div>
   <div class="hero-title">Route Cost <span>Optimiser</span></div>
-  <div class="hero-sub">
-    Compute the least-cost freight allocation across markets and delivery points
-    using Vogel's Approximation Method with MODI optimisation.
-  </div>
 </div>
 """, unsafe_allow_html=True)
 
