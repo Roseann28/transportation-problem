@@ -365,6 +365,67 @@ st.markdown("""
 st.markdown('<div class="section-label">Step 01</div>', unsafe_allow_html=True)
 st.markdown('<div class="section-title">Cost matrices, supply & demand</div>', unsafe_allow_html=True)
 
+# --- Add Market / Add School controls ---
+with st.expander("➕ Add a market or a school"):
+    add_market_tab, add_school_tab = st.tabs(["Add Market (source)", "Add School (destination)"])
+
+    with add_market_tab:
+        with st.form("add_market_form", clear_on_submit=True):
+            new_market_name = st.text_input("Market name")
+            new_market_supply = st.number_input("Supply (bags)", min_value=0, value=0, step=1)
+
+            dests_now = list(st.session_state.op_df.drop(columns=["Supply (bags)"]).columns)
+            st.caption("Cost per bag (KES) to each school:")
+            op_cost_inputs, com_cost_inputs = {}, {}
+            for d in dests_now:
+                c1, c2 = st.columns(2)
+                op_cost_inputs[d] = c1.number_input(f"Operating → {d}", min_value=0.0, value=0.0, step=0.01, key=f"new_market_op_{d}")
+                com_cost_inputs[d] = c2.number_input(f"Commercial → {d}", min_value=0.0, value=0.0, step=0.01, key=f"new_market_com_{d}")
+
+            submitted_market = st.form_submit_button("Add Market")
+            if submitted_market:
+                if not new_market_name.strip():
+                    st.warning("Please enter a market name.")
+                elif new_market_name in st.session_state.op_df.index:
+                    st.warning("A market with this name already exists.")
+                else:
+                    op_row = pd.DataFrame([[new_market_supply] + [op_cost_inputs[d] for d in dests_now]],
+                                           index=[new_market_name],
+                                           columns=["Supply (bags)"] + dests_now)
+                    com_row = pd.DataFrame([[new_market_supply] + [com_cost_inputs[d] for d in dests_now]],
+                                            index=[new_market_name],
+                                            columns=["Supply (bags)"] + dests_now)
+                    st.session_state.op_df = pd.concat([st.session_state.op_df, op_row])
+                    st.session_state.com_df = pd.concat([st.session_state.com_df, com_row])
+                    st.success(f"Added market '{new_market_name}'.")
+                    st.rerun()
+
+    with add_school_tab:
+        with st.form("add_school_form", clear_on_submit=True):
+            new_school_name = st.text_input("School name")
+            new_school_demand = st.number_input("Demand (bags)", min_value=0, value=0, step=1)
+
+            sources_now = list(st.session_state.op_df.index)
+            st.caption("Cost per bag (KES) from each market:")
+            op_cost_inputs2, com_cost_inputs2 = {}, {}
+            for s in sources_now:
+                c1, c2 = st.columns(2)
+                op_cost_inputs2[s] = c1.number_input(f"Operating from {s}", min_value=0.0, value=0.0, step=0.01, key=f"new_school_op_{s}")
+                com_cost_inputs2[s] = c2.number_input(f"Commercial from {s}", min_value=0.0, value=0.0, step=0.01, key=f"new_school_com_{s}")
+
+            submitted_school = st.form_submit_button("Add School")
+            if submitted_school:
+                if not new_school_name.strip():
+                    st.warning("Please enter a school name.")
+                elif new_school_name in st.session_state.op_df.drop(columns=["Supply (bags)"]).columns:
+                    st.warning("A school with this name already exists.")
+                else:
+                    st.session_state.op_df[new_school_name] = [op_cost_inputs2[s] for s in sources_now]
+                    st.session_state.com_df[new_school_name] = [com_cost_inputs2[s] for s in sources_now]
+                    st.session_state.demand_df[new_school_name] = [new_school_demand]
+                    st.success(f"Added school '{new_school_name}'.")
+                    st.rerun()
+
 # --- Operating Cost ---
 st.markdown('<div class="card"><div class="card-title">🔧 Operating cost per bag (KES)</div>', unsafe_allow_html=True)
 edited_op = st.data_editor(
