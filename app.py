@@ -146,15 +146,37 @@ def solve_transportation(supply, demand, cost):
     if total_supply > total_demand:
         demand = demand + [total_supply - total_demand]
         cost = np.hstack([cost, np.zeros((cost.shape[0], 1))])
-        note = f"Dummy destination added (cost $0): supply exceeds demand by {total_supply - total_demand:.0f} bags."
+        note = f"Dummy destination added (cost 0): supply exceeds demand by {total_supply - total_demand:.0f} bags."
     elif total_demand > total_supply:
         supply = supply + [total_demand - total_supply]
         cost = np.vstack([cost, np.zeros((1, cost.shape[1]))])
-        note = f"Dummy source added (cost $0): demand exceeds supply by {total_demand - total_supply:.0f} bags."
+        note = f"Dummy source added (cost 0): demand exceeds supply by {total_demand - total_supply:.0f} bags."
     initial = vogel_initial_solution(supply, demand, cost)
     optimal = modi_optimize(initial, cost)
     total_cost = float((optimal * cost).sum())
     return optimal, total_cost, note
+
+
+# ----------------------------------------------------------------------------
+# Default cost matrices from Excel
+# ----------------------------------------------------------------------------
+
+OPERATING_COSTS = np.array([
+    [31.83, 19.59, 119.98, 10.61],
+    [27.75, 28.57, 129.78,  8.98],
+    [86.52, 37.55,  55.50, 65.30],
+], dtype=float)
+
+COMMERCIAL_COSTS = np.array([
+    [ 52.65,  32.40, 198.45,  17.55],
+    [ 45.90,  47.25, 214.65,  14.85],
+    [143.10,  62.10,  91.80, 108.00],
+], dtype=float)
+
+DEFAULT_SOURCES = ["Githuirai", "Marikiti", "Makuyu"]
+DEFAULT_DESTS   = ["AGHS", "MHS", "NHS", "PGHS"]
+DEFAULT_SUPPLY  = [51, 121, 30]
+DEFAULT_DEMAND  = [50, 59, 45, 48]
 
 
 # ----------------------------------------------------------------------------
@@ -163,103 +185,93 @@ def solve_transportation(supply, demand, cost):
 
 def init_state():
     if "sources" not in st.session_state:
-        st.session_state.sources = ["Githurai", "Marikiti", "Mukuyu"]
+        st.session_state.sources = DEFAULT_SOURCES.copy()
     if "dests" not in st.session_state:
-        st.session_state.dests = ["AGHS", "MHS", "NHS", "PGHS"]
+        st.session_state.dests = DEFAULT_DESTS.copy()
     if "supply" not in st.session_state:
-        st.session_state.supply = [51, 121, 30]
+        st.session_state.supply = DEFAULT_SUPPLY.copy()
     if "demand" not in st.session_state:
-        st.session_state.demand = [50, 59, 45, 48]
-    if "costs" not in st.session_state:
-        st.session_state.costs = np.array([
-            [39, 24, 147, 13],
-            [34, 35, 159, 11],
-            [106, 46, 68, 80],
-        ], dtype=float)
+        st.session_state.demand = DEFAULT_DEMAND.copy()
+    if "op_costs" not in st.session_state:
+        st.session_state.op_costs = OPERATING_COSTS.copy()
+    if "com_costs" not in st.session_state:
+        st.session_state.com_costs = COMMERCIAL_COSTS.copy()
 
 
 init_state()
 
-st.title("Maize distribution transportation model")
+st.title("Maize Distribution Transportation Model")
 st.caption(
-    "Enter the cost per bag for each market-to-school route, along with supply and demand, "
+    "Enter cost per bag for each market-to-school route under both cost types, "
     "then solve for the least-cost distribution plan using Vogel's Approximation Method + MODI."
 )
 
 # ----------------------------------------------------------------------------
-# Supply, demand, cost per bag
+# Section 1: Supply, demand & cost matrices
 # ----------------------------------------------------------------------------
 
-st.subheader("1. Markets, schools, supply, demand and cost per bag (KES)")
+st.subheader("1. Markets, schools, supply and demand")
 
 bcol1, bcol2, _ = st.columns([1, 1, 6])
 with bcol1:
     if st.button("+ Market"):
         st.session_state.sources.append(f"Market {len(st.session_state.sources) + 1}")
         st.session_state.supply.append(0)
-        st.session_state.costs = np.vstack(
-            [st.session_state.costs, np.zeros((1, len(st.session_state.dests)))]
-        )
+        st.session_state.op_costs  = np.vstack([st.session_state.op_costs,  np.zeros((1, len(st.session_state.dests)))])
+        st.session_state.com_costs = np.vstack([st.session_state.com_costs, np.zeros((1, len(st.session_state.dests)))])
         st.rerun()
 with bcol2:
     if st.button("+ School"):
         st.session_state.dests.append(f"School {len(st.session_state.dests) + 1}")
         st.session_state.demand.append(0)
-        st.session_state.costs = np.hstack(
-            [st.session_state.costs, np.zeros((len(st.session_state.sources), 1))]
-        )
+        st.session_state.op_costs  = np.hstack([st.session_state.op_costs,  np.zeros((len(st.session_state.sources), 1))])
+        st.session_state.com_costs = np.hstack([st.session_state.com_costs, np.zeros((len(st.session_state.sources), 1))])
         st.rerun()
 
 n_src = len(st.session_state.sources)
 n_dst = len(st.session_state.dests)
 
-# Cost + supply table
-cost_table = pd.DataFrame(
-    st.session_state.costs,
-    index=st.session_state.sources,
-    columns=st.session_state.dests,
-)
-cost_table.insert(0, "Supply (bags)", st.session_state.supply)
+# --- Operating Cost matrix ---
+st.markdown("**Operating cost per bag (KES)**")
+op_table = pd.DataFrame(st.session_state.op_costs, index=st.session_state.sources, columns=st.session_state.dests)
+op_table.insert(0, "Supply (bags)", st.session_state.supply)
+edited_op = st.data_editor(op_table, num_rows="fixed", use_container_width=True, key="op_editor")
 
-st.caption("Enter cost per bag (KES) for each route, and weekly supply per market.")
-edited = st.data_editor(
-    cost_table,
-    num_rows="fixed",
-    use_container_width=True,
-    key="cost_editor",
-)
+# --- Commercial Freight Cost matrix ---
+st.markdown("**Commercial freight cost per bag (KES)**")
+com_table = pd.DataFrame(st.session_state.com_costs, index=st.session_state.sources, columns=st.session_state.dests)
+com_table.insert(0, "Supply (bags)", st.session_state.supply)
+edited_com = st.data_editor(com_table, num_rows="fixed", use_container_width=True, key="com_editor")
 
-# Demand row
-demand_row = pd.DataFrame(
-    [st.session_state.demand],
-    columns=st.session_state.dests,
-    index=["Demand (bags)"],
-)
-st.caption("Weekly demand per school (bags).")
-edited_demand = st.data_editor(
-    demand_row,
-    num_rows="fixed",
-    use_container_width=True,
-    key="demand_editor",
-)
+# --- Demand row (shared) ---
+st.markdown("**Weekly demand per school (bags)**")
+demand_row = pd.DataFrame([st.session_state.demand], columns=st.session_state.dests, index=["Demand (bags)"])
+edited_demand = st.data_editor(demand_row, num_rows="fixed", use_container_width=True, key="demand_editor")
 
-# Pull edited values back out
-st.session_state.supply = edited["Supply (bags)"].tolist()
-st.session_state.costs = edited.drop(columns=["Supply (bags)"]).to_numpy(dtype=float)
-st.session_state.demand = edited_demand.iloc[0].tolist()
+# Pull edited values back
+st.session_state.supply    = edited_op["Supply (bags)"].tolist()
+st.session_state.op_costs  = edited_op.drop(columns=["Supply (bags)"]).to_numpy(dtype=float)
+st.session_state.com_costs = edited_com.drop(columns=["Supply (bags)"]).to_numpy(dtype=float)
+st.session_state.demand    = edited_demand.iloc[0].tolist()
 
 total_supply = sum(st.session_state.supply)
 total_demand = sum(st.session_state.demand)
 st.caption(f"Total supply: {total_supply:.0f} bags  |  Total demand: {total_demand:.0f} bags")
 
 # ----------------------------------------------------------------------------
-# Solve
+# Section 2: Solve
 # ----------------------------------------------------------------------------
 
 st.subheader("2. Solve")
 
+cost_type = st.radio(
+    "Select cost matrix to optimise:",
+    ["Operating Cost", "Commercial Freight Cost"],
+    horizontal=True,
+)
+
 if st.button("Solve", type="primary"):
-    cost = st.session_state.costs
+    cost = st.session_state.op_costs if cost_type == "Operating Cost" else st.session_state.com_costs
 
     alloc, total_cost, note = solve_transportation(
         st.session_state.supply, st.session_state.demand, cost
@@ -272,11 +284,10 @@ if st.button("Solve", type="primary"):
 
     names_i = list(st.session_state.sources)
     names_j = list(st.session_state.dests)
-    if total_supply != total_demand:
-        if total_supply > total_demand:
-            names_j = names_j + ["Dummy"]
-        else:
-            names_i = names_i + ["Dummy"]
+    if total_supply > total_demand:
+        names_j = names_j + ["Dummy"]
+    elif total_demand > total_supply:
+        names_i = names_i + ["Dummy"]
 
     st.markdown("**Optimal allocation (bags)**")
     alloc_df = pd.DataFrame(np.round(alloc, 2), index=names_i, columns=names_j)
@@ -303,7 +314,7 @@ if st.button("Solve", type="primary"):
     m2.metric("Routes used", len(routes))
 
     if routes:
-        st.markdown("**Routes used**")
+        st.markdown("**Active routes**")
         st.dataframe(pd.DataFrame(routes), use_container_width=True)
 
 st.divider()
